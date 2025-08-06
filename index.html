@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>World Space Pinch WebAR</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+            color: white;
+            touch-action: none;
+        }
+        
+        #camera-view {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: 1;
+        }
+        
+        #detection-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+        
+        #ar-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 3;
+            pointer-events: none;
+        }
+        
+        #instructions {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        #status {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(255, 0, 255, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 100;
+            text-align: center;
+            font-size: 12px;
+        }
+        
+        #debug {
+            position: fixed;
+            top: 120px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #00ff00;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 100;
+            font-size: 9px;
+            font-family: monospace;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 80px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 100;
+            text-align: center;
+        }
+        
+        button {
+            background: #ff00ff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            font-size: 12px;
+            margin: 2px;
+        }
+        
+        .wave-3d {
+            position: absolute;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,0,255,0.9), rgba(255,0,255,0.3));
+            box-shadow: 0 0 30px #ff00ff, inset 0 0 20px rgba(255,255,255,0.3);
+            animation: liquidWave3D 3s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 4;
+        }
+        
+        .wave-3d.solid {
+            animation: solidPulse 4s ease-in-out infinite;
+            background: radial-gradient(circle, rgba(255,0,255,1), rgba(255,0,255,0.6));
+            box-shadow: 0 0 40px #ff00ff, inset 0 0 30px rgba(255,255,255,0.4);
+        }
+        
+        @keyframes liquidWave3D {
+            0% { 
+                transform: scale(1) rotate(0deg); 
+                border-radius: 50%; 
+                opacity: 0.8;
+            }
+            25% { 
+                transform: scale(1.3) rotate(90deg); 
+                border-radius: 60% 40% 60% 40%; 
+                opacity: 0.9;
+            }
+            50% { 
+                transform: scale(1.1) rotate(180deg); 
+                border-radius: 40% 60% 40% 60%; 
+                opacity: 1;
+            }
+            75% { 
+                transform: scale(1.4) rotate(270deg); 
+                border-radius: 70% 30% 70% 30%; 
+                opacity: 0.9;
+            }
+            100% { 
+                transform: scale(1) rotate(360deg); 
+                border-radius: 50%; 
+                opacity: 0.8;
+            }
+        }
+        
+        @keyframes solidPulse {
+            0%, 100% { 
+                transform: scale(1); 
+                opacity: 0.9; 
+            }
+            50% { 
+                transform: scale(1.05); 
+                opacity: 1; 
+            }
+        }
+        
+        .hand-landmark {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: rgba(0, 255, 0, 0.8);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 5;
+        }
+        
+        .fingertip {
+            background: rgba(255, 165, 0, 0.8);
+            width: 12px;
+            height: 12px;
+            border: 2px solid #ffa500;
+        }
+        
+        .pinch-indicator {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: rgba(255, 255, 0, 0.8);
+            border-radius: 50%;
+            border: 3px solid #ffff00;
+            pointer-events: none;
+            z-index: 6;
+            animation: pinchPulse 0.5s ease-in-out infinite;
+        }
+        
+        @keyframes pinchPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 200;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <video id="camera-view" autoplay playsinline muted></video>
+    <canvas id="detection-canvas"></canvas>
+    <canvas id="ar-canvas"></canvas>
+    
+    <div id="loading">
+        <div>Loading MediaPipe Hand Detection...</div>
+        <div style="margin-top: 10px; font-size: 12px;">This may take a moment</div>
+    </div>
+    
+    <div id="instructions" style="display: none;">
+        <strong>🌊 World Space Pinch WebAR</strong><br>
+        Point the back camera at your hand and pinch your thumb and index finger!<br>
+        The liquid wave will appear in 3D space where you pinch.
+    </div>
+    
+    <div id="status">Initializing hand tracking...</div>
+    
+    <div id="debug">Debug info will appear here...</div>
+    
+    <div id="controls" style="display: none;">
+        <button onclick="app.toggleDetectionView()">Toggle Detection</button>
+        <button onclick="app.clearAllWaves()">Clear Waves</button>
+        <button onclick="app.toggleHandLandmarks()">Toggle Landmarks</button>
+    </div>
+
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <script>
+        class WorldSpacePinchAR {
+            constructor() {
+                this.video = document.getElementById('camera-view');
+                this.detectionCanvas = document.getElementById('detection-canvas');
+                this.detectionCtx = this.detectionCanvas.getContext('2d');
+                this.arCanvas = document.getElementById('ar-canvas');
+                this.arCtx = this.arCanvas.getContext('2d');
+                this.status = document.getElementById('status');
+                this.debug = document.getElementById('debug');
+                this.loading = document.getElementById('loading');
+                this.instructions = document.getElementById('instructions');
+                this.controls = document.getElementById('controls');
+                
+                // MediaPipe Hands
+                this.hands = null;
+                this.camera = null;
+                this.handResults = null;
+                this.useSimplifiedDetection = false;
+                
+                // Hand tracking parameters
+                this.showDetection = false;
+                this.showLandmarks = true;
+                this.frameCount = 0;
+                
+                // Pinch detection
+                this.activePinches = new Map();
+                this.pinchThreshold = 0.05; // Distance threshold for pinch (normalized coordinates)
+                this.waveCounter = 0;
+                this.lastPinchStates = new Map(); // Track previous pinch states
+                
+                this.init();
+            }
+            
+            log(message) {
+                console.log(message);
+                this.debug.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
+                this.debug.scrollTop = this.debug.scrollHeight;
+                
+                // Keep only last 5 messages
+                const lines = this.debug.innerHTML.split('<br>');
+                if (lines.length > 6) {
+                    this.debug.innerHTML = lines.slice(-6).join('<br>');
+                }
+            }
+            
+            async init() {
+                this.log('🚀 Initializing World Space Pinch AR...');
+                
+                // Setup canvases
+                this.resizeCanvases();
+                window.addEventListener('resize', () => this.resizeCanvases());
+                
+                // Initialize MediaPipe Hands
+                await this.initializeMediaPipe();
+                
+                // Setup camera
+                await this.setupCamera();
+                
+                this.log('✅ World Space AR initialized!');
+            }
+            
+            async initializeMediaPipe() {
+                try {
+                    this.log('🤖 Loading MediaPipe Hands...');
+                    
+                    // Check if MediaPipe is loaded
+                    if (typeof Hands === 'undefined') {
+                        throw new Error('MediaPipe Hands library not loaded');
+                    }
+                    
+                    this.hands = new Hands({
+                        locateFile: (file) => {
+                            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                        }
+                    });
+                    
+                    this.hands.setOptions({
+                        maxNumHands: 2,
+                        modelComplexity: 1,
+                        minDetectionConfidence: 0.7,
+                        minTrackingConfidence: 0.5
+                    });
+                    
+                    this.hands.onResults(this.onResults.bind(this));
+                    
+                    this.log('✅ MediaPipe Hands loaded!');
+                    
+                } catch (error) {
+                    this.log('❌ MediaPipe error: ' + error.message);
+                    this.status.textContent = 'MediaPipe error: ' + error.message;
+                    
+                    // Fallback to simplified detection
+                    this.log('⚠️ Falling back to simplified hand detection...');
+                    this.useSimplifiedDetection = true;
+                }
+            }
+            
+            startMediaPipeProcessing() {
+                if (this.useSimplifiedDetection) {
+                    this.startSimplifiedDetection();
+                    return;
+                }
+                
+                const processFrame = async () => {
+                    if (this.video.readyState >= 2) { // HAVE_CURRENT_DATA
+                        try {
+                            await this.hands.send({ image: this.video });
+                        } catch (error) {
+                            this.log('⚠️ MediaPipe processing error, switching to fallback');
+                            this.useSimplifiedDetection = true;
+                            this.startSimplifiedDetection();
+                            return;
+                        }
+                    }
+                    requestAnimationFrame(processFrame);
+                };
+                
+                processFrame();
+            }
+            
+            startSimplifiedDetection() {
+                this.log('🎯 Starting simplified hand detection (click-based)');
+                this.status.textContent = 'MediaPipe unavailable. Click/tap on screen to create waves!';
+                
+                // Add click/touch event listeners as fallback
+                const createWaveAtPoint = (x, y) => {
+                    const pinchId = `click-${Date.now()}`;
+                    const wave = this.create3DWave({ x, y }, 50);
+                    wave.classList.add('solid');
+                    this.waveCounter++;
+                    this.log(`✨ Wave created at (${Math.round(x)}, ${Math.round(y)})`);
+                };
+                
+                document.addEventListener('click', (e) => {
+                    createWaveAtPoint(e.clientX, e.clientY);
+                });
+                
+                document.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    createWaveAtPoint(touch.clientX, touch.clientY);
+                });
+            }
+            
+            resizeCanvases() {
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+                
+                this.detectionCanvas.width = width;
+                this.detectionCanvas.height = height;
+                this.arCanvas.width = width;
+                this.arCanvas.height = height;
+                
+                this.log(`📐 Canvases resized: ${width}x${height}`);
+            }
+            
+            async setupCamera() {
+                try {
+                    this.log('📷 Setting up camera...');
+                    
+                    // Check if getUserMedia is available
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('getUserMedia not supported in this browser');
+                    }
+                    
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: 'environment', // Back camera for natural hand tracking
+                            width: { ideal: 640, max: 1280 },
+                            height: { ideal: 480, max: 720 }
+                        }
+                    });
+                    
+                    this.video.srcObject = stream;
+                    
+                    // Wait for video to be ready
+                    await new Promise((resolve) => {
+                        this.video.onloadedmetadata = () => {
+                            this.video.play().then(resolve);
+                        };
+                    });
+                    
+                    // Start MediaPipe processing
+                    this.startMediaPipeProcessing();
+                    
+                    // Hide loading screen
+                    this.loading.style.display = 'none';
+                    this.instructions.style.display = 'block';
+                    this.controls.style.display = 'block';
+                    
+                    this.log('✅ Camera started successfully!');
+                    this.status.textContent = 'Ready! Show your hand and pinch thumb to index finger!';
+                    
+                } catch (error) {
+                    this.log('❌ Camera error: ' + error.message);
+                    this.status.textContent = 'Camera error: ' + error.message;
+                    this.loading.innerHTML = `
+                        <div style="color: red;">Camera Error: ${error.message}</div>
+                        <div style="margin-top: 10px; font-size: 12px;">
+                            ${error.name === 'NotAllowedError' ? 
+                                'Please allow camera access and refresh the page.' : 
+                                'Please check camera permissions and try again.'}
+                        </div>
+                        <button onclick="location.reload()" style="margin-top: 10px;">Retry</button>
+                    `;
+                }
+            }
+            
+            onResults(results) {
+                if (this.useSimplifiedDetection) return;
+                
+                this.handResults = results;
+                this.frameCount++;
+                
+                // Clear previous landmarks if showing
+                if (this.showLandmarks) {
+                    document.querySelectorAll('.hand-landmark, .fingertip').forEach(el => el.remove());
+                }
+                
+                // Clear detection canvas
+                this.detectionCtx.clearRect(0, 0, this.detectionCanvas.width, this.detectionCanvas.height);
+                
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    results.multiHandLandmarks.forEach((landmarks, handIndex) => {
+                        this.processHand(landmarks, handIndex, results.multiHandedness[handIndex]);
+                    });
+                } else {
+                    // No hands detected, clean up old pinches
+                    this.cleanupInactivePinches();
+                    this.status.textContent = 'No hands detected. Show your hand to the camera!';
+                }
+            }
+            
+            processHand(landmarks, handIndex, handedness) {
+                const handLabel = handedness.label; // "Left" or "Right"
+                
+                // Convert normalized coordinates to screen coordinates
+                const screenLandmarks = landmarks.map(landmark => ({
+                    x: landmark.x * this.detectionCanvas.width,
+                    y: landmark.y * this.detectionCanvas.height,
+                    z: landmark.z
+                }));
+                
+                // Show hand landmarks if enabled
+                if (this.showLandmarks) {
+                    this.drawHandLandmarks(screenLandmarks);
+                }
+                
+                // Get key fingertip positions (thumb tip = 4, index tip = 8)
+                const thumbTip = screenLandmarks[4];
+                const indexTip = screenLandmarks[8];
+                
+                // Calculate distance between thumb and index finger
+                const distance = Math.sqrt(
+                    Math.pow(thumbTip.x - indexTip.x, 2) + 
+                    Math.pow(thumbTip.y - indexTip.y, 2)
+                );
+                
+                // Normalize distance (relative to screen size)
+                const normalizedDistance = distance / Math.min(this.detectionCanvas.width, this.detectionCanvas.height);
+                
+                const pinchId = `hand-${handIndex}`;
+                const isPinching = normalizedDistance < this.pinchThreshold;
+                const wasPinching = this.lastPinchStates.get(pinchId) || false;
+                
+                // Update pinch state
+                this.lastPinchStates.set(pinchId, isPinching);
+                
+                if (isPinching && !wasPinching) {
+                    // Start pinch
+                    this.startWorldSpacePinch(thumbTip, indexTip, pinchId, handLabel);
+                } else if (isPinching && wasPinching) {
+                    // Continue pinch
+                    this.updateWorldSpacePinch(thumbTip, indexTip, pinchId);
+                } else if (!isPinching && wasPinching) {
+                    // End pinch
+                    this.endWorldSpacePinch(pinchId);
+                }
+                
+                // Update status
+                if (isPinching) {
+                    this.status.textContent = `Pinching with ${handLabel} hand! Distance: ${Math.round(normalizedDistance * 1000) / 1000}`;
+                } else {
+                    this.status.textContent = `${handLabel} hand detected. Distance: ${Math.round(normalizedDistance * 1000) / 1000} (threshold: ${this.pinchThreshold})`;
+                }
+            }
+            
+            drawHandLandmarks(landmarks) {
+                // Draw all landmarks
+                landmarks.forEach((landmark, index) => {
+                    const dot = document.createElement('div');
+                    dot.className = 'hand-landmark';
+                    
+                    // Highlight fingertips
+                    if ([4, 8, 12, 16, 20].includes(index)) { // Fingertip indices
+                        dot.className = 'hand-landmark fingertip';
+                    }
+                    
+                    dot.style.left = (landmark.x - 6) + 'px';
+                    dot.style.top = (landmark.y - 6) + 'px';
+                    document.body.appendChild(dot);
+                });
+                
+                // Draw connections if showing detection
+                if (this.showDetection) {
+                    this.drawHandConnections(landmarks);
+                }
+            }
+            
+            drawHandConnections(landmarks) {
+                this.detectionCtx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
+                this.detectionCtx.lineWidth = 2;
+                
+                // Hand connections (simplified)
+                const connections = [
+                    [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
+                    [0, 5], [5, 6], [6, 7], [7, 8], // Index
+                    [0, 17], [5, 9], [9, 10], [10, 11], [11, 12], // Middle
+                    [9, 13], [13, 14], [14, 15], [15, 16], // Ring
+                    [13, 17], [17, 18], [18, 19], [19, 20] // Pinky
+                ];
+                
+                connections.forEach(([start, end]) => {
+                    if (landmarks[start] && landmarks[end]) {
+                        this.detectionCtx.beginPath();
+                        this.detectionCtx.moveTo(landmarks[start].x, landmarks[start].y);
+                        this.detectionCtx.lineTo(landmarks[end].x, landmarks[end].y);
+                        this.detectionCtx.stroke();
+                    }
+                });
+            }
+            
+            startWorldSpacePinch(thumbTip, indexTip, pinchId, handLabel) {
+                const midpoint = {
+                    x: (thumbTip.x + indexTip.x) / 2,
+                    y: (thumbTip.y + indexTip.y) / 2
+                };
+                
+                const distance = Math.sqrt(
+                    Math.pow(thumbTip.x - indexTip.x, 2) + 
+                    Math.pow(thumbTip.y - indexTip.y, 2)
+                );
+                
+                this.log(`🤏 ${handLabel} hand pinch started at (${Math.round(midpoint.x)}, ${Math.round(midpoint.y)})`);
+                
+                // Create pinch indicator
+                const pinchIndicator = document.createElement('div');
+                pinchIndicator.className = 'pinch-indicator';
+                pinchIndicator.style.left = (midpoint.x - 15) + 'px';
+                pinchIndicator.style.top = (midpoint.y - 15) + 'px';
+                pinchIndicator.id = 'pinch-' + pinchId;
+                document.body.appendChild(pinchIndicator);
+                
+                // Create 3D wave in world space
+                const wave = this.create3DWave(midpoint, distance);
+                
+                this.activePinches.set(pinchId, {
+                    wave: wave,
+                    indicator: pinchIndicator,
+                    startTime: Date.now(),
+                    lastUpdate: Date.now(),
+                    startDistance: distance
+                });
+            }
+            
+            updateWorldSpacePinch(thumbTip, indexTip, pinchId) {
+                const pinchData = this.activePinches.get(pinchId);
+                if (!pinchData) return;
+                
+                const midpoint = {
+                    x: (thumbTip.x + indexTip.x) / 2,
+                    y: (thumbTip.y + indexTip.y) / 2
+                };
+                
+                const distance = Math.sqrt(
+                    Math.pow(thumbTip.x - indexTip.x, 2) + 
+                    Math.pow(thumbTip.y - indexTip.y, 2)
+                );
+                
+                pinchData.lastUpdate = Date.now();
+                
+                // Update indicator position
+                pinchData.indicator.style.left = (midpoint.x - 15) + 'px';
+                pinchData.indicator.style.top = (midpoint.y - 15) + 'px';
+                
+                // Update wave position and properties
+                this.update3DWave(pinchData.wave, midpoint, distance);
+            }
+            
+            endWorldSpacePinch(pinchId) {
+                const pinchData = this.activePinches.get(pinchId);
+                if (!pinchData) return;
+                
+                const duration = Date.now() - pinchData.startTime;
+                this.log(`✨ Pinch ended after ${duration}ms - solidifying wave`);
+                
+                // Remove indicator
+                if (pinchData.indicator && pinchData.indicator.parentNode) {
+                    pinchData.indicator.parentNode.removeChild(pinchData.indicator);
+                }
+                
+                // Solidify wave
+                pinchData.wave.classList.add('solid');
+                
+                this.activePinches.delete(pinchId);
+                
+                // Auto-remove after 20 seconds
+                setTimeout(() => {
+                    if (pinchData.wave && pinchData.wave.parentNode) {
+                        pinchData.wave.style.transition = 'opacity 3s';
+                        pinchData.wave.style.opacity = '0';
+                        setTimeout(() => {
+                            if (pinchData.wave.parentNode) {
+                                pinchData.wave.parentNode.removeChild(pinchData.wave);
+                            }
+                        }, 3000);
+                    }
+                }, 20000);
+            }
+            
+            create3DWave(position, pinchDistance) {
+                const wave = document.createElement('div');
+                wave.className = 'wave-3d';
+                wave.id = 'wave-3d-' + this.waveCounter++;
+                
+                // Calculate 3D-like positioning and scaling based on pinch distance
+                const depthFactor = Math.max(0.5, Math.min(2.0, (100 - pinchDistance) / 50));
+                const size = 60 + (depthFactor * 40);
+                
+                wave.style.width = size + 'px';
+                wave.style.height = size + 'px';
+                wave.style.left = (position.x - size/2) + 'px';
+                wave.style.top = (position.y - size/2) + 'px';
+                
+                // Add depth-based effects
+                wave.style.filter = `blur(${(2 - depthFactor)}px)`;
+                wave.style.transform = `scale(${depthFactor})`;
+                
+                document.body.appendChild(wave);
+                
+                return wave;
+            }
+            
+            update3DWave(wave, position, pinchDistance) {
+                const depthFactor = Math.max(0.5, Math.min(2.0, (100 - pinchDistance) / 50));
+                const size = 60 + (depthFactor * 40);
+                
+                wave.style.width = size + 'px';
+                wave.style.height = size + 'px';
+                wave.style.left = (position.x - size/2) + 'px';
+                wave.style.top = (position.y - size/2) + 'px';
+                wave.style.filter = `blur(${(2 - depthFactor)}px)`;
+                wave.style.transform = `scale(${depthFactor})`;
+                
+                // Adjust animation speed based on pinch tightness
+                if (pinchDistance < 30) {
+                    wave.style.animationDuration = '1.5s';
+                } else if (pinchDistance < 50) {
+                    wave.style.animationDuration = '2s';
+                } else {
+                    wave.style.animationDuration = '3s';
+                }
+            }
+            
+            cleanupInactivePinches() {
+                // End all active pinches when no hands are detected
+                this.activePinches.forEach((pinchData, pinchId) => {
+                    this.endWorldSpacePinch(pinchId);
+                });
+                this.lastPinchStates.clear();
+            }
+            
+            // Control methods
+            toggleDetectionView() {
+                this.showDetection = !this.showDetection;
+                this.log(`🔍 Detection view: ${this.showDetection ? 'ON' : 'OFF'}`);
+            }
+            
+            toggleHandLandmarks() {
+                this.showLandmarks = !this.showLandmarks;
+                if (!this.showLandmarks) {
+                    document.querySelectorAll('.hand-landmark, .fingertip').forEach(el => el.remove());
+                }
+                this.log(`👋 Hand landmarks: ${this.showLandmarks ? 'ON' : 'OFF'}`);
+            }
+            
+            clearAllWaves() {
+                document.querySelectorAll('.wave-3d').forEach(wave => {
+                    wave.parentNode.removeChild(wave);
+                });
+                this.activePinches.clear();
+                this.log('🧹 All waves cleared');
+            }
+        }
+        
+        // Initialize the app
+        let app;
+        document.addEventListener('DOMContentLoaded', () => {
+            app = new WorldSpacePinchAR();
+        });
+        
+        // Prevent zoom and scrolling
+        document.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+        }, { passive: false });
+        
+        document.addEventListener('gesturestart', (e) => {
+            e.preventDefault();
+        });
+    </script>
+</body>
+</html>
